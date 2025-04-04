@@ -6,7 +6,7 @@
     aws_region: us-west-1
     eks_cluster: devops-na-nuvem-eks-cluster
     aws_account_id: 968225077300
-    vpc_id: vpc-03c820d5144080de8
+    vpc_id: vpc-08e70b07b7b6fe133
   tasks:
     - name: Download IAM Policy
       shell: |
