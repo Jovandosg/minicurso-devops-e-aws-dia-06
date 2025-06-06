@@ -1,16 +1,17 @@
 resource "aws_iam_role" "karpenter_controller" {
-  name = var.eks_cluster.karpenter_controller_role_name
+  name = "KarpenterControllerRole"
+
   assume_role_policy = jsonencode({
     Statement = [{
+      Action = "sts:AssumeRoleWithWebIdentity"
       Effect = "Allow"
       Principal = {
-        Federated = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${local.eks_oidc_url}"
+        Federated = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${local.oidc_url}"
       }
-      Action = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = {
-          "${local.eks_oidc_url}:aud" = "sts.amazonaws.com"
-          "${local.eks_oidc_url}:sub" = "system:serviceaccount:kube-system:karpenter"
+          "${local.oidc_url}:aud" = "sts.amazonaws.com"
+          "${local.oidc_url}:sub" = "system:serviceaccount:kube-system:karpenter"
         }
       }
     }]
@@ -18,8 +19,10 @@ resource "aws_iam_role" "karpenter_controller" {
   })
 }
 
-resource "aws_iam_policy" "karpenter_controller" {
-  name = var.eks_cluster.karpenter_controll_policy_name
+resource "aws_iam_policy" "karpenter" {
+  name        = "karpenter_policy"
+  path        = "/"
+  description = "IAM policy for Karpenter functionality"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -61,23 +64,25 @@ resource "aws_iam_policy" "karpenter_controller" {
         Sid      = "PassNodeIAMRole"
         Effect   = "Allow"
         Action   = "iam:PassRole"
-        Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${aws_iam_role.eks_node_group.name}"
+        Resource = aws_iam_role.eks_node_group.arn
       },
       {
         Sid      = "EKSClusterEndpointLookup"
         Effect   = "Allow"
         Action   = "eks:DescribeCluster"
-        Resource = "arn:aws:eks:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:cluster/${aws_eks_cluster.this.id}"
+        Resource = "arn:aws:eks:${var.authentication.region}:${data.aws_caller_identity.current.account_id}:cluster/${aws_eks_cluster.this.id}"
       },
       {
-        Sid      = "AllowScopedInstanceProfileCreationActions"
-        Effect   = "Allow"
-        Action   = ["iam:CreateInstanceProfile"]
+        Sid    = "AllowScopedInstanceProfileCreationActions"
+        Effect = "Allow"
+        Action = [
+          "iam:CreateInstanceProfile"
+        ]
         Resource = "*"
         Condition = {
           StringEquals = {
             "aws:RequestTag/kubernetes.io/cluster/${aws_eks_cluster.this.id}" = "owned"
-            "aws:RequestTag/topology.kubernetes.io/region"                    = "${data.aws_region.current.name}"
+            "aws:RequestTag/topology.kubernetes.io/region"                    = "${var.authentication.region}"
           }
           StringLike = {
             "aws:RequestTag/karpenter.k8s.aws/ec2nodeclass" = "*"
@@ -85,16 +90,18 @@ resource "aws_iam_policy" "karpenter_controller" {
         }
       },
       {
-        Sid      = "AllowScopedInstanceProfileTagActions"
-        Effect   = "Allow"
-        Action   = ["iam:TagInstanceProfile"]
+        Sid    = "AllowScopedInstanceProfileTagActions"
+        Effect = "Allow"
+        Action = [
+          "iam:TagInstanceProfile"
+        ]
         Resource = "*"
         Condition = {
           StringEquals = {
             "aws:ResourceTag/kubernetes.io/cluster/${aws_eks_cluster.this.id}" = "owned"
-            "aws:ResourceTag/topology.kubernetes.io/region"                    = "${data.aws_region.current.name}"
+            "aws:ResourceTag/topology.kubernetes.io/region"                    = "${var.authentication.region}"
             "aws:RequestTag/kubernetes.io/cluster/${aws_eks_cluster.this.id}"  = "owned"
-            "aws:RequestTag/topology.kubernetes.io/region"                     = "${data.aws_region.current.name}"
+            "aws:RequestTag/topology.kubernetes.io/region"                     = "${var.authentication.region}"
           }
           StringLike = {
             "aws:ResourceTag/karpenter.k8s.aws/ec2nodeclass" = "*"
@@ -114,7 +121,7 @@ resource "aws_iam_policy" "karpenter_controller" {
         Condition = {
           StringEquals = {
             "aws:ResourceTag/kubernetes.io/cluster/${aws_eks_cluster.this.id}" = "owned"
-            "aws:ResourceTag/topology.kubernetes.io/region"                    = "${data.aws_region.current.name}"
+            "aws:ResourceTag/topology.kubernetes.io/region"                    = "${var.authentication.region}"
           }
           StringLike = {
             "aws:ResourceTag/karpenter.k8s.aws/ec2nodeclass" = "*"
@@ -132,6 +139,6 @@ resource "aws_iam_policy" "karpenter_controller" {
 }
 
 resource "aws_iam_role_policy_attachment" "karpenter_controller_custom_policy" {
-  policy_arn = aws_iam_policy.karpenter_controller.arn
+  policy_arn = aws_iam_policy.karpenter.arn
   role       = aws_iam_role.karpenter_controller.name
 }
